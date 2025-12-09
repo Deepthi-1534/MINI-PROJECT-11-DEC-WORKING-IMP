@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Nature-tech color system */
+    --background: 140 30% 6%;
+    --foreground: 120 15% 95%;
+
+    --card: 140 25% 8%;
+    --card-foreground: 120 15% 95%;
+
+    --popover: 140 28% 7%;
+    --popover-foreground: 120 15% 95%;
+
+    /* Deep forest green primary */
+    --primary: 150 45% 35%;
+    --primary-foreground: 120 20% 98%;
+    --primary-glow: 150 60% 50%;
+
+    /* Bioluminescent cyan accent */
+    --secondary: 180 80% 55%;
+    --secondary-foreground: 140 30% 6%;
+
+    --muted: 140 20% 15%;
+    --muted-foreground: 120 10% 60%;
+
+    /* Detection amber */
+    --accent: 35 90% 60%;
+    --accent-foreground: 140 30% 6%;
+
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 120 20% 98%;
+
+    --border: 140 20% 18%;
+    --input: 140 20% 15%;
+    --ring: 150 60% 50%;
+
+    --radius: 0.75rem;
+
+    /* Gradients */
+    --gradient-hero: linear-gradient(135deg, hsl(150 45% 25%), hsl(180 60% 30%));
+    --gradient-scan: linear-gradient(180deg, transparent, hsl(180 80% 55% / 0.2));
+    --gradient-heat: linear-gradient(90deg, hsl(35 90% 60%), hsl(0 85% 60%));
+    
+    /* Shadows and glows */
+    --glow-primary: 0 0 40px hsl(150 60% 50% / 0.3);
+    --glow-accent: 0 0 30px hsl(180 80% 55% / 0.4);
+    --shadow-elevated: 0 10px 40px -10px hsl(140 30% 6% / 0.5);
+
+    /* Animations */
+    --transition-smooth: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
