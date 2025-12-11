@@ -1,48 +1,64 @@
 # backend/models/seg_infer.py
-import os
 import numpy as np
 import cv2
-from PIL import Image
+from ultralytics import YOLO
+import os
 
-MODEL_PATH = os.environ.get("SINET_CHECKPOINT_PATH", None)
-
-# If you implement real SINet, load model weights here (PyTorch).
-USE_REAL = False
-try:
-    if MODEL_PATH and os.path.exists(MODEL_PATH):
-        USE_REAL = True
-except Exception:
-    USE_REAL = False
+MODEL_PATH = os.getenv("YOLO_WEIGHTS_PATH", "models/yolov8n.pt")
+yolo = YOLO(MODEL_PATH)
 
 def seg_infer(img_bgr: np.ndarray):
     """
-    Args:
-      img_bgr: HxWx3 (BGR) numpy array
-    Returns:
-      mask: HxW bool numpy array
-      prob_map: HxW float in [0..1]
+    YOLO-guided camouflage segmentation.
+    Always returns:
+        - mask where the detected animal blends with surroundings
+        - prob_map indicating camouflage strength
     """
-    h,w = img_bgr.shape[:2]
 
-    if USE_REAL:
-        # TODO: put your SINet model loading and inference here.
-        # Example (pseudocode):
-        # model = load_sinet(MODEL_PATH)
-        # pred = model.predict(preprocess(img_bgr))
-        # prob_map = cv2.resize(pred, (w,h))
-        # mask = prob_map > 0.5
-        # return mask.astype(bool), prob_map
-        raise NotImplementedError("Real SINet inference not implemented in stub.")
-    else:
-        # Simple heuristic fallback: find low-contrast regions via local variance
-        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-        # normalized local std filter
-        blur = cv2.GaussianBlur(gray, (9,9), 0)
-        diff = cv2.absdiff(gray, blur)
-        # threshold; low diff -> likely camouflaged (smooth regions)
-        thresh = np.percentile(diff, 40)
-        mask = (diff <= thresh).astype(np.uint8)
-        # morphological cleanup
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5,5), np.uint8))
-        prob_map = cv2.normalize(1 - (diff.astype(np.float32)/255.0), None, 0.0, 1.0, cv2.NORM_MINMAX)
-        return mask.astype(bool), prob_map
+    H, W = img_bgr.shape[:2]
+
+    # Run YOLO
+    results = yolo.predict(img_bgr, conf=0.25, iou=0.5, max_det=1)[0]
+
+    if len(results.boxes) == 0:
+        print("NO YOLO DETECTION")
+        return np.zeros((H, W), dtype=bool), np.zeros((H, W), dtype=np.float32)
+
+    # Pick strongest detection
+    box = results.boxes.xyxy.cpu().numpy()[0]
+    x1, y1, x2, y2 = map(int, box)
+
+    # Extract object region
+    crop = img_bgr[y1:y2, x1:x2]
+    if crop.size == 0:
+        print("EMPTY YOLO CROP")
+        return np.zeros((H, W), dtype=bool), np.zeros((H, W), dtype=np.float32)
+
+    # Convert to LAB for texture + color uniformity
+    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+    L, A, B = cv2.split(lab)
+
+    # Compute smoothness = low gradient
+    grad = cv2.Laplacian(L, cv2.CV_32F)
+    grad_abs = np.abs(grad)
+
+    # Normalize
+    grad_norm = cv2.normalize(grad_abs, None, 0, 1.0, cv2.NORM_MINMAX)
+
+    # Camouflage = *low texture contrast*
+    thresh = np.percentile(grad_norm, 35)
+    camo_local = (grad_norm <= thresh).astype(np.float32)
+
+    # Expand back to full mask
+    mask = np.zeros((H, W), dtype=bool)
+    prob = np.zeros((H, W), dtype=np.float32)
+
+    camo_resized = cv2.resize(camo_local, (x2 - x1, y2 - y1))
+    prob_resized = cv2.resize(1 - grad_norm, (x2 - x1, y2 - y1))
+
+    mask[y1:y2, x1:x2] = camo_resized > 0.5
+    prob[y1:y2, x1:x2] = prob_resized
+
+    print("Camouflage mask pixels:", mask.sum())
+
+    return mask, prob

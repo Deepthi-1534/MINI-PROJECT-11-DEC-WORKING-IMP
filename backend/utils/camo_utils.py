@@ -54,33 +54,17 @@ def compute_camo_percentage(img_bgr: np.ndarray, mask: np.ndarray):
     camo_pct = int(round(100 * np.clip(camo_score, 0.0, 1.0)))
     return camo_pct
 
-def regions_from_mask(mask: np.ndarray, img_shape):
-    """
-    Split mask into connected components and compute bounding boxes with intensity.
-    Returns a list of dicts: {description, intensity, x,y,width,height (0-100 pct)}
-    """
-    regions = []
-    if mask.sum()==0:
-        return regions
-    mask_u8 = mask.astype(np.uint8)
-    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask_u8, connectivity=8)
-    h,w,_ = img_shape
-    for i in range(1, num_labels):
-        x,y,ww,hh,area = stats[i]
-        if area < 16:  # skip tiny
-            continue
-        sub_mask = (labels==i)
-        intensity = int(round( (sub_mask.sum() / (ww*hh + 1e-6)) * 100 ))
-        desc = f"Region {i}"
-        regions.append({
-            "description": desc,
-            "intensity": intensity,
-            "x": int(round(100.0 * x / w)),
-            "y": int(round(100.0 * y / h)),
-            "width": int(round(100.0 * ww / w)),
-            "height": int(round(100.0 * hh / h))
-        })
-    return regions
+def regions_from_mask(mask, img_shape):
+    # Instead of returning hundreds of regions, return only one:
+    if mask.sum() == 0:
+        return []
+
+    ys, xs = np.where(mask)
+    x1, y1, x2, y2 = xs.min(), ys.min(), xs.max(), ys.max()
+    return [{
+        "bbox": [int(x1), int(y1), int(x2), int(y2)],
+        "intensity": 100  # mask covered = maximum camouflage
+    }]
 
 def mask_to_heatmap(mask: np.ndarray, img_bgr: np.ndarray):
     """
