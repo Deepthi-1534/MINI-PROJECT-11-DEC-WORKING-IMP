@@ -1,51 +1,63 @@
 import cv2
+import torch
 import numpy as np
 from ultralytics import YOLO
-import torch
 from torchvision.ops import nms
 import os
 
-# Load YOLO model
-MODEL_PATH = os.getenv("YOLO_WEIGHTS_PATH", "models/yolov8n.pt")
-print("Loading YOLO model from:", MODEL_PATH)
+# Load YOLO
+MODEL_PATH = os.getenv("YOLO_WEIGHTS_PATH", "backend/models/yolov8n.pt")
 model = YOLO(MODEL_PATH)
-print("YOLO model loaded successfully.")
+
+# Load SINet
+from models.sinet_loader import load_sinet
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # backend/models/
+SINET_PATH = os.path.join(BASE_DIR, "Net_epoch_best.pth")
+sinet_model = load_sinet(SINET_PATH)
+sinet_model.eval()
+
+def sinet_predict(img_bgr):
+    """
+    Run SINet on a normal RGB/BGR image.
+    MUST return mask only (HxW bool).
+    """
+    img = cv2.resize(img_bgr, (352, 352))
+    img = img[:, :, ::-1]  # BGR → RGB
+    img = img.transpose(2, 0, 1) / 255.0  # HWC → CHW
+    img = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
+
+    with torch.no_grad():
+        out = sinet_model(img)[0]  # shape 1x1xH×W → take [0]
+        out = torch.sigmoid(out).squeeze().cpu().numpy()
+
+    mask = out > 0.5
+    return mask.astype(np.bool_)
+    
 
 def detect_infer(img):
     """
-    Accepts a BGR numpy image and returns ONE bounding box:
-    [x1, y1, x2, y2, score, class]
+    Returns only YOLO bounding box.
+    SINet is NOT used inside detection.
     """
-
-    if img is None or not hasattr(img, "shape"):
-        print("detect_infer received invalid image")
-        return []
-
     H, W = img.shape[:2]
 
-    # Run YOLO
-    results = model.predict(
-        img,
-        conf=0.55,     # higher threshold removes leaf noise
-        iou=0.45,
-        max_det=10     # detect only a few objects
-    )[0]
+    # YOLO detect
+    results = model.predict(img, conf=0.55, iou=0.45, max_det=10)[0]
 
     boxes = results.boxes.xyxy.cpu().numpy()
     scores = results.boxes.conf.cpu().numpy()
     classes = results.boxes.cls.cpu().numpy()
 
-    # Filter out tiny & noisy detections
-    min_area = (W * H) * 0.01   # MUST be >= 1% of image → removes leaf textures
     filtered = []
+    min_area = (W*H) * 0.01  # Remove noise
 
     for (x1, y1, x2, y2), conf, cls in zip(boxes, scores, classes):
-        area = (x2 - x1) * (y2 - y1)
+        area = (x2-x1)*(y2-y1)
         if conf >= 0.55 and area >= min_area:
             filtered.append(((x1, y1, x2, y2), conf, cls))
 
     if not filtered:
-        return []  # no detection
+        return []
 
     # NMS
     b = torch.tensor([b[0] for b in filtered], dtype=torch.float32)
@@ -53,12 +65,11 @@ def detect_infer(img):
     keep = nms(b, s, iou_threshold=0.45)
     kept = [filtered[int(i)] for i in keep]
 
-    # Select the *largest* box (most likely the hidden animal)
+    # Select the largest box
     best_box = None
     max_area = -1
-
     for (x1, y1, x2, y2), conf, cls in kept:
-        area = (x2 - x1) * (y2 - y1)
+        area = (x2-x1)*(y2-y1)
         if area > max_area:
             max_area = area
             best_box = [float(x1), float(y1), float(x2), float(y2), float(conf), int(cls)]

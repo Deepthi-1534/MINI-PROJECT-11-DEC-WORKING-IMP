@@ -1,73 +1,158 @@
-# Welcome to your Lovable project
+Camouflage Detection and Species Identification System
 
-## Project info
+This project implements an integrated system for detecting camouflaged animals, segmenting their outline, identifying species, and generating analytical metrics. The solution combines YOLO-based object detection, SINet camouflage segmentation, and the Google Gemini multimodal API for species classification. A React frontend provides a clean visual interface for reviewing detection results.
 
-**URL**: https://lovable.dev/projects/cc410040-ef04-4b53-9ff0-c0359552c81d
+Overview
 
-## How can I edit this code?
+The application performs the following operations:
 
-There are several ways of editing your application.
+Detects animals in images using YOLOv8.
 
-**Use Lovable**
+Performs camouflage segmentation using a pre-trained SINet-V2 model (COD10K dataset).
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/cc410040-ef04-4b53-9ff0-c0359552c81d) and start prompting.
+Computes camouflage percentage and overall detection confidence.
 
-Changes made via Lovable will be committed automatically to this repo.
+Identifies the species via the Gemini API, returning both common and scientific names.
 
-**Use your preferred IDE**
+Renders bounding boxes, segmentation maps, and statistics in a modern frontend interface.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+System Architecture
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+Backend
 
-Follow these steps:
+Python 3.10
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+FastAPI
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+Ultralytics YOLOv8
 
-# Step 3: Install the necessary dependencies.
-npm i
+SINet-V2 segmentation
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+Google Gemini multimodal API
+
+NumPy, Torch, OpenCV
+
+Frontend
+
+React with TypeScript
+
+Vite
+
+Tailwind CSS
+
+ShadCN UI components
+
+Project Structure
+backend/
+ ├── app.py
+ ├── models/
+ │    ├── detect_infer.py
+ │    ├── seg_infer.py
+ │    ├── classify_infer.py
+ │    ├── sinet_model.py
+ │    └── sinet_loader.py
+ ├── utils/
+ │    ├── camo_utils.py
+ │    ├── io_utils.py
+ ├── requirements.txt
+
+frontend/
+ ├── src/
+ ├── public/
+ ├── package.json
+
+Backend Setup
+
+Create and activate a virtual environment:
+
+python -m venv venv
+venv\Scripts\activate
+
+
+Install dependencies:
+
+pip install -r backend/requirements.txt
+
+
+Create a .env file inside the backend directory:
+
+GEMINI_API_KEY=your_api_key_here
+GEMINI_MODEL=models/gemini-2.5-flash
+
+
+Start the backend:
+
+cd backend
+uvicorn app:app --reload
+
+
+Backend URL:
+http://localhost:8080
+
+Frontend Setup
+
+Install dependencies:
+
+cd frontend
+npm install
+
+
+Start the development server:
+
 npm run dev
-```
 
-**Edit a file directly in GitHub**
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+Frontend URL:
+http://localhost:5173
 
-**Use GitHub Codespaces**
+Processing Workflow
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+YOLOv8 performs object detection and filters out low-confidence predictions.
 
-## What technologies are used for this project?
+SINet-V2 performs camouflage segmentation, producing a mask and probability map.
 
-This project is built with:
+A detected crop is sent to Gemini for species identification, which returns:
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Common name
 
-## How can I deploy this project?
+Scientific name
 
-Simply open [Lovable](https://lovable.dev/projects/cc410040-ef04-4b53-9ff0-c0359552c81d) and click on Share -> Publish.
+Confidence score
 
-## Can I connect a custom domain to my Lovable project?
+Camouflage percentage is computed using mask density and region analysis.
 
-Yes, you can!
+The frontend displays detection results, overlays, metrics, and descriptive information.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+API Response Format
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+The backend returns a structured JSON response:
+
+{
+  "detected": true,
+  "species": "Eastern gray squirrel",
+  "scientificName": "Sciurus carolinensis",
+  "camouflagePercentage": 64,
+  "confidence": 92,
+  "boundingBox": { ... },
+  "camouflageRegions": [ ... ],
+  "description": "...",
+  "adaptations": [ ... ]
+}
+
+Customization Options
+
+YOLO model selection and confidence thresholds
+
+Segmentation sensitivity parameters
+
+Gemini model version
+
+Bounding box selection logic
+
+Frontend visualization components
+
+Camouflage scoring algorithms
+
+License
+
+This project is intended for academic and research use. Users must comply with licensing requirements for YOLO, SINet, and the Gemini API.

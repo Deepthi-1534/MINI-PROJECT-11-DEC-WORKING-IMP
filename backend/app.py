@@ -82,54 +82,104 @@ async def analyze(image_url: Optional[str] = Form(None), file: Optional[UploadFi
     # Convert RGB -> BGR for OpenCV / YOLO (your models expect BGR)
     img_np = img_np[:, :, ::-1].copy()
 
-    # 1) Detector (returns list of boxes: [x1,y1,x2,y2,score,cls])
+    # ----------------------------------------------------------------
+    # 1) Detector (detect_infer now returns dict: {'box':..., 'sinet_mask':...})
+    # ----------------------------------------------------------------
     try:
-        boxes = detect_infer(img_np)
+        det_result = detect_infer(img_np)
+        if det_result is None:
+            det_result = {"box": None, "sinet_mask": None}
+        # Normalize to old 'boxes' list format for downstream compatibility
+        boxes = []
+        if isinstance(det_result, dict):
+            box = det_result.get("box", None)
+            sinet_mask_from_detector = det_result.get("sinet_mask", None)
+            if box is not None:
+                # old expectation: list of boxes [[x1,y1,x2,y2,score,cls], ...]
+                boxes = [box]
+        else:
+            # backward compatibility: detect_infer returned list of boxes previously
+            boxes = det_result if isinstance(det_result, list) else []
+            sinet_mask_from_detector = None
         if boxes is None:
             boxes = []
     except Exception as e:
-        # Log and return a server error with message
         print("detect_infer error:", e)
         raise HTTPException(status_code=500, detail=f"Detection error: {e}")
 
-    # 2) Segmentation (mask: HxW bool, prob_map: HxW float 0..1)
+    # ----------------------------------------------------------------
+    # 2) Segmentation
+    #    Priority order:
+    #      1) If detect_infer returned a sinet_mask, use that.
+    #      2) Else call seg_infer() (existing segmentation module).
+    #    seg_infer may return (mask, prob_map) or a single mask.
+    # ----------------------------------------------------------------
     try:
-        seg_out = seg_infer(img_np)
-        # Accept a tuple (mask, prob_map) or single output
-        if isinstance(seg_out, tuple) and len(seg_out) == 2:
-            mask, prob_map = seg_out
-        else:
-            # seg_infer returns single mask -> create prob_map from mask
-            mask = seg_out
-            prob_map = np.zeros_like(mask, dtype=float)
-            if mask is not None:
-                prob_map = mask.astype(float)
-    except Exception as e:
-        print("seg_infer error:", e)
-        # Provide safe empty mask/prob_map so downstream code can continue
-        mask = np.zeros((img_np.shape[0], img_np.shape[1]), dtype=bool)
-        prob_map = np.zeros((img_np.shape[0], img_np.shape[1]), dtype=float)
+        mask = None
+        prob_map = None
 
-    # Ensure mask and prob_map shapes are correct
-    try:
+        if sinet_mask_from_detector is not None:
+            # detector returned a SINet mask - normalize it
+            sinet_mask = sinet_mask_from_detector
+            # convert to numpy if torch tensor or PIL
+            if hasattr(sinet_mask, "cpu"):
+                sinet_mask = sinet_mask.cpu().numpy()
+            if isinstance(sinet_mask, np.ndarray):
+                # If mask is 0-255, scale to 0-1 float for prob_map and boolean for mask
+                if sinet_mask.dtype == np.uint8 or sinet_mask.max() > 1:
+                    prob_map = (sinet_mask.astype(float) / 255.0).astype(float)
+                    mask = (prob_map > 0.5)
+                else:
+                    prob_map = sinet_mask.astype(float)
+                    mask = sinet_mask.astype(bool)
+            else:
+                # try to coerce via PIL
+                try:
+                    from PIL import Image as PILImage
+                    arr = np.array(PILImage.fromarray(sinet_mask))
+                    prob_map = (arr.astype(float) / 255.0).astype(float) if arr.max() > 1 else arr.astype(float)
+                    mask = prob_map > 0.5
+                except Exception:
+                    mask = np.zeros((img_np.shape[0], img_np.shape[1]), dtype=bool)
+                    prob_map = np.zeros_like(mask, dtype=float)
+        else:
+            # fallback to existing seg_infer
+            seg_out = seg_infer(img_np)
+            if isinstance(seg_out, tuple) and len(seg_out) == 2:
+                mask, prob_map = seg_out
+            else:
+                mask = seg_out
+                prob_map = None
+                if mask is not None:
+                    # If it's numeric mask, convert to float prob_map
+                    if mask.dtype == np.uint8 or mask.max() > 1:
+                        prob_map = (mask.astype(float) / 255.0).astype(float)
+                        mask = (prob_map > 0.5)
+                    else:
+                        prob_map = mask.astype(float)
+                        mask = mask.astype(bool)
+
+        # Ensure shapes and types
         if mask is None:
             mask = np.zeros((img_np.shape[0], img_np.shape[1]), dtype=bool)
         if prob_map is None:
             prob_map = np.zeros_like(mask, dtype=float)
 
-        # If mask is float/probability map, make boolean mask for some ops
         if mask.dtype != bool:
             mask_bool = mask.astype(bool)
         else:
             mask_bool = mask
 
     except Exception as e:
-        print("mask normalization error:", e)
+        print("seg_infer / mask normalization error:", e)
         mask = np.zeros((img_np.shape[0], img_np.shape[1]), dtype=bool)
         prob_map = np.zeros((img_np.shape[0], img_np.shape[1]), dtype=float)
         mask_bool = mask
 
+    # ----------------------------------------------------------------
     # 3) Choose primary bounding box (if any) - prefer detection that overlaps mask
+    #    The rest of this logic is unchanged from your original file.
+    # ----------------------------------------------------------------
     primary_box = None
     if boxes:
         best = None
@@ -161,7 +211,9 @@ async def analyze(image_url: Optional[str] = Form(None), file: Optional[UploadFi
         x1, y1, x2, y2 = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
         primary_box = [x1, y1, x2, y2, 0.95, 0]  # synthetic score
 
+    # ----------------------------------------------------------------
     # 4) Species classification (on crop if primary_box exists)
+    # ----------------------------------------------------------------
     species = None
     species_prob = 0.0
     if primary_box:
@@ -183,14 +235,18 @@ async def analyze(image_url: Optional[str] = Form(None), file: Optional[UploadFi
             species = None
             species_prob = 0.0
 
+    # ----------------------------------------------------------------
     # 5) camo percentage (algorithmic)
+    # ----------------------------------------------------------------
     try:
         camo_pct = int(round(compute_camo_percentage(img_np, mask_bool)))
     except Exception as e:
         print("compute_camo_percentage error:", e)
         camo_pct = 0
 
+    # ----------------------------------------------------------------
     # 6) confidence (combine mask mean prob + species prob + detection confidence)
+    # ----------------------------------------------------------------
     try:
         mask_conf = float(prob_map[mask_bool].mean()) if mask_bool.sum() > 0 else 0.0
     except Exception:
@@ -199,14 +255,18 @@ async def analyze(image_url: Optional[str] = Form(None), file: Optional[UploadFi
     combined_conf = (0.5 * mask_conf + 0.3 * species_prob + 0.2 * detect_conf)
     confidence = int(round(max(0, min(1, combined_conf)) * 100))
 
+    # ----------------------------------------------------------------
     # 7) regions
+    # ----------------------------------------------------------------
     try:
         regions = regions_from_mask(mask_bool, img_np.shape)
     except Exception as e:
         print("regions_from_mask error:", e)
         regions = []
 
+    # ----------------------------------------------------------------
     # 8) description via LLM (optional, may fail)
+    # ----------------------------------------------------------------
     try:
         desc, adaptations = generate_description({
             "species": species,

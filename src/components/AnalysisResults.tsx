@@ -3,15 +3,15 @@ import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 
 interface BoundingBox {
-  x: number;      // percentage x1
-  y: number;      // percentage y1
-  width: number;  // percentage width
-  height: number; // percentage height
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 interface AnalysisData {
   detected: boolean;
-  species?: string;
+  species?: string | null;
   camouflagePercentage: number;
   confidence: number;
   description: string;
@@ -25,6 +25,8 @@ interface AnalysisResultsProps {
 }
 
 const AnalysisResults = ({ data, imagePreview }: AnalysisResultsProps) => {
+  const species = data.species && data.species !== "unknown" ? data.species : null;
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
 
@@ -40,9 +42,12 @@ const AnalysisResults = ({ data, imagePreview }: AnalysisResultsProps) => {
             <h2 className="text-3xl font-bold text-foreground">
               {data.detected ? 'Camouflage Detected!' : 'No Camouflage Detected'}
             </h2>
-            {data.species && (
+
+            {/* SPECIES DISPLAY (Header) */}
+            {species && (
               <p className="text-lg text-muted-foreground mt-1">
-                Species: <span className="text-secondary font-semibold">{data.species}</span>
+                Species Detected:{" "}
+                <span className="text-secondary font-semibold">{species}</span>
               </p>
             )}
           </div>
@@ -53,6 +58,14 @@ const AnalysisResults = ({ data, imagePreview }: AnalysisResultsProps) => {
         </p>
       </Card>
 
+      {/* Species Card — BIG VISUAL BOX */}
+      {species && (
+        <Card className="p-6 bg-card border-border/50 shadow-elevated">
+          <h3 className="text-xl font-bold mb-2 text-foreground">Detected Species</h3>
+          <p className="text-3xl font-semibold text-secondary">{species}</p>
+        </Card>
+      )}
+
       {/* Metrics */}
       <div className="grid md:grid-cols-2 gap-6">
         <Card className="p-6 bg-card border-border/50">
@@ -61,9 +74,7 @@ const AnalysisResults = ({ data, imagePreview }: AnalysisResultsProps) => {
             <TrendingUp className="w-6 h-6 text-accent" />
           </div>
           <div className="space-y-3">
-            <span className="text-5xl font-bold text-accent">
-              {data.camouflagePercentage}%
-            </span>
+            <span className="text-5xl font-bold text-accent">{data.camouflagePercentage}%</span>
             <Progress value={data.camouflagePercentage} className="h-3" />
           </div>
         </Card>
@@ -83,9 +94,8 @@ const AnalysisResults = ({ data, imagePreview }: AnalysisResultsProps) => {
       {/* Visual Analysis */}
       <Card className="p-8 bg-card border-border/50 shadow-elevated">
         <h3 className="text-2xl font-bold mb-6 text-foreground">Visual Analysis</h3>
-        
-        <div className="grid md:grid-cols-2 gap-6">
 
+        <div className="grid md:grid-cols-2 gap-6">
           {/* Original */}
           <div>
             <h4 className="text-lg font-semibold text-muted-foreground">Original Image</h4>
@@ -101,7 +111,6 @@ const AnalysisResults = ({ data, imagePreview }: AnalysisResultsProps) => {
             <div className="relative rounded-xl overflow-hidden border border-border/50 mt-3">
               <img id="detect-image" src={imagePreview} className="w-full h-auto" />
 
-              {/* Draw ONLY main bounding box */}
               {data.boundingBox && (
                 <div
                   className="absolute border-4 border-secondary rounded-md"
@@ -118,10 +127,7 @@ const AnalysisResults = ({ data, imagePreview }: AnalysisResultsProps) => {
                 {data.camouflagePercentage}% Overall
               </div>
             </div>
-
-            {/* Removed region legend + region overlays */}
           </div>
-
         </div>
       </Card>
 
@@ -129,6 +135,7 @@ const AnalysisResults = ({ data, imagePreview }: AnalysisResultsProps) => {
       {data.adaptations?.length > 0 && (
         <Card className="p-8 bg-card border-border/50 shadow-elevated">
           <h3 className="text-2xl font-bold mb-6 text-foreground">Camouflage Adaptations</h3>
+
           <div className="grid md:grid-cols-2 gap-4">
             {data.adaptations.map((adapt, idx) => (
               <div key={idx} className="flex items-start gap-3 p-4 rounded-lg bg-primary/10">
@@ -139,7 +146,6 @@ const AnalysisResults = ({ data, imagePreview }: AnalysisResultsProps) => {
           </div>
         </Card>
       )}
-
     </div>
   );
 };
